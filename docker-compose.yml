@@ -47,7 +47,20 @@ services:
     ports:
       - "5050:80"
 
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: ai_openwebui
+    restart: always
+    ports:
+      - "3000:8080"
+    volumes:
+      - openwebui_data:/app/backend/data
+    environment:
+      - WEBUI_SECRET_KEY=1efd8081f8e74752a126a52875728aaf8b0e1a8374bc10e21c21a780cb31cc36
+
 volumes:
   postgres_data:
   qdrant_data:
   minio_data:
+  volumes:
+  openwebui_data:
