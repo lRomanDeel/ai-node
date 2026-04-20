@@ -1,0 +1,18 @@
+name: Deploy to ai-node
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Deploy locally
+        run: |
+          cd ~/ai-media
+          git pull
+          docker compose down
+          docker compose up -d --build

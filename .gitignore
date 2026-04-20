@@ -1,0 +1,12 @@
+# GitHub Actions runner (НЕ хранить в репозитории)
+actions-runner/
+
+# Python (если есть backend)
+__pycache__/
+*.pyc
+
+# env файлы
+.env
+
+# логи
+*.log

@@ -1,0 +1,15 @@
+mode:
+  analyzer: local
+  editor: api
+
+local_models:
+  analyzer: qwen2.5-7b
+  editor: qwen2.5-7b
+
+api_models:
+  analyzer: gpt-4o-mini
+  editor: claude-3-5-sonnet
+
+api_keys:
+  openai: "YOUR_OPENAI_KEY"
+  anthropic: "YOUR_ANTHROPIC_KEY"
