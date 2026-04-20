@@ -12,7 +12,6 @@ jobs:
     steps:
       - name: Deploy locally
         run: |
-          cd ~/ai-media
+          cd /home/manager/ai-media
           git pull
-          docker compose down
           docker compose up -d --build
