@@ -2,41 +2,47 @@
 
 import httpx
 from kernel.core.logger import logger
+from kernel.core.config import Config
 
 
 class LLMExecutor:
     """
-    LLMExecutor — стратегия выполнения задач через локальную LLM (Ollama)
+    LLMExecutor — выполнение задач через локальную модель (Ollama)
 
-    Отвечает за:
-    - отправку prompt в Ollama
-    - получение ответа модели
-    - обработку ошибок
+    Архитектурная роль:
+    - выполнение "дешёвых" задач
+    - fallback для API executor
+    - основной исполнитель в оффлайн/low-cost режиме
 
-    Архитектурно:
-    - это одна из стратегий Execution Layer
-    - в будущем можно добавить:
-        - AgentExecutor
-        - WorkflowExecutor (LangGraph)
-        - ToolExecutor
+    НЕ отвечает за:
+    - routing (это делает ModelRouter)
+    - retry (это делает Coordinator)
+    - бизнес-логику
+
+    Только выполнение.
     """
 
     def __init__(self):
         """
-        Инициализация executor'а
+        Инициализация executor
         """
-        # Endpoint Ollama API
-        self.ollama_url = "http://localhost:11434/api/generate"
 
-        # Таймаут на генерацию (важно для CPU)
-        self.timeout = 300.0  # секунд
+        # =========================
+        # Ollama endpoint
+        # =========================
+        self.url = "http://127.0.0.1:11434/api/generate"
+
+        # =========================
+        # Таймаут (берём из config)
+        # =========================
+        self.timeout = Config.LOCAL_TIMEOUT
 
     async def run(self, context: dict):
         """
         Основной метод выполнения задачи
 
-        :param context: execution context (данные задачи)
-        :return: результат генерации модели
+        :param context: execution context
+        :return: результат выполнения (строка)
         """
 
         # =========================
@@ -44,50 +50,62 @@ class LLMExecutor:
         # =========================
         task_id = context.get("task_id")
         input_data = context.get("input")
-        model = context.get("model", "llama3:8b")
+        model = context.get("model")
 
-        logger.info(f"[EXECUTOR START] task_id={task_id} model={model}")
+        logger.info(
+            f"[LOCAL EXECUTOR START] task_id={task_id} model={model}"
+        )
 
         try:
             # =========================
-            # Формируем запрос к Ollama
+            # Формируем payload для Ollama
             # =========================
             payload = {
                 "model": model,
                 "prompt": input_data,
-                "stream": False  # пока без стриминга
+                "stream": False  # MVP — без streaming
             }
 
             # =========================
-            # Асинхронный HTTP запрос
+            # HTTP запрос к Ollama
             # =========================
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(self.ollama_url, json=payload)
+                response = await client.post(
+                    self.url,
+                    json=payload
+                )
 
             # =========================
             # Проверка ответа
             # =========================
             if response.status_code != 200:
-                raise Exception(f"Ollama error: {response.text}")
+                raise Exception(
+                    f"Ollama error: {response.text}"
+                )
 
             data = response.json()
 
-            # Ollama возвращает результат в поле "response"
-            result = data.get("response", "")
+            # =========================
+            # Извлекаем результат
+            # =========================
+            result = data.get("response")
 
-            # =========================
-            # Лог успешного выполнения
-            # =========================
-            logger.info(f"[EXECUTOR END] task_id={task_id}")
+            if not result:
+                raise Exception("Empty response from Ollama")
+
+            logger.info(
+                f"[LOCAL EXECUTOR END] task_id={task_id}"
+            )
 
             return result
 
-        except httpx.RequestError as e:
-            # Ошибка сети / соединения
-            logger.exception(f"[EXECUTOR NETWORK ERROR] task_id={task_id}")
-            raise Exception("Failed to connect to Ollama") from e
-
         except Exception as e:
-            # Общая ошибка выполнения
-            logger.exception(f"[EXECUTOR ERROR] task_id={task_id}")
+            # =========================
+            # Логируем ошибку
+            # =========================
+            logger.exception(
+                f"[LOCAL EXECUTOR ERROR] task_id={task_id}"
+            )
+
+            # пробрасываем выше (Coordinator решает retry/fallback)
             raise e

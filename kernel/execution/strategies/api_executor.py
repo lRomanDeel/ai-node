@@ -5,35 +5,39 @@ import httpx
 
 from dotenv import load_dotenv
 from kernel.core.logger import logger
-
+from kernel.core.config import Config
 
 # =========================
-# Загружаем переменные окружения из .env
+# Загружаем переменные окружения (.env)
 # =========================
 load_dotenv()
 
 
 class APIExecutor:
     """
-    APIExecutor — выполнение задач через внешние LLM API.
+    APIExecutor — выполнение задач через внешние LLM API (OpenAI)
 
     Архитектурная роль:
     - выполнение сложных задач
-    - получение более качественных ответов
-    - fallback для локальных моделей (в будущем)
+    - high-quality ответы
+    - fallback target для routing (если выбран API)
 
-    Поддержка:
-    - OpenAI API (текущая реализация)
-    - легко расширяется (Claude, Gemini и т.д.)
+    НЕ отвечает за:
+    - retry (Coordinator)
+    - fallback (Coordinator)
+    - routing (ModelRouter)
+    - бизнес-логику
+
+    Только выполнение запроса к API.
     """
 
     def __init__(self):
         """
-        Инициализация API executor
+        Инициализация executor
         """
 
         # =========================
-        # Получение API ключа
+        # API ключ (из .env)
         # =========================
         self.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -46,26 +50,32 @@ class APIExecutor:
         self.url = "https://api.openai.com/v1/chat/completions"
 
         # =========================
-        # Таймаут (сек)
+        # Таймаут из config
         # =========================
-        self.timeout = 60.0
+        self.timeout = Config.API_TIMEOUT
 
     async def run(self, context: dict):
         """
-        Выполнение задачи через API
+        Основной метод выполнения задачи через API
 
         :param context: execution context
         :return: результат выполнения (строка)
         """
 
+        # =========================
+        # Извлекаем данные из context
+        # =========================
         task_id = context.get("task_id")
         input_data = context.get("input")
+        model = context.get("model", "gpt-4o-mini")
 
-        logger.info(f"[API EXECUTOR START] task_id={task_id}")
+        logger.info(
+            f"[API EXECUTOR START] task_id={task_id} model={model}"
+        )
 
         try:
             # =========================
-            # Проверка ключа
+            # Проверка API ключа
             # =========================
             if not self.api_key:
                 raise Exception("OPENAI_API_KEY is not set")
@@ -79,10 +89,10 @@ class APIExecutor:
             }
 
             # =========================
-            # Тело запроса
+            # Формируем payload
             # =========================
             payload = {
-                "model": "gpt-4o-mini",  # быстрый и дешевый вариант
+                "model": model,
                 "messages": [
                     {
                         "role": "user",
@@ -93,7 +103,7 @@ class APIExecutor:
             }
 
             # =========================
-            # Выполнение HTTP запроса
+            # HTTP запрос
             # =========================
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
@@ -103,27 +113,40 @@ class APIExecutor:
                 )
 
             # =========================
-            # Проверка ответа
+            # Проверка ответа API
             # =========================
             if response.status_code != 200:
-                raise Exception(f"API error: {response.text}")
+                raise Exception(
+                    f"API error: {response.status_code} {response.text}"
+                )
 
             data = response.json()
 
             # =========================
-            # Извлечение результата
+            # Извлекаем результат
             # =========================
-            result = data["choices"][0]["message"]["content"]
+            try:
+                result = data["choices"][0]["message"]["content"]
+            except Exception:
+                raise Exception(f"Invalid API response format: {data}")
 
-            logger.info(f"[API EXECUTOR END] task_id={task_id}")
+            if not result:
+                raise Exception("Empty response from API")
+
+            logger.info(
+                f"[API EXECUTOR END] task_id={task_id}"
+            )
 
             return result
 
         except Exception as e:
             # =========================
-            # Логирование ошибки
+            # Логируем ошибку
             # =========================
-            logger.exception(f"[API EXECUTOR ERROR] task_id={task_id}")
+            logger.exception(
+                f"[API EXECUTOR ERROR] task_id={task_id}"
+            )
 
-            # пробрасываем ошибку выше (Coordinator решает fallback)
+            # ВАЖНО:
+            # не обрабатываем здесь → Coordinator решает retry/fallback
             raise e

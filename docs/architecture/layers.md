@@ -256,3 +256,42 @@ Human Layer может вмешаться в любой шаг workflow.
 5. Все изменения версионируются.
 6. Любое расширение сопровождается документацией.
 7. Код обязательно содержит комментарии.
+
+
+# Architecture Overview
+
+## Target vs Current
+
+### Target (Full System)
+
+10-layer architecture:
+- Infrastructure
+- Kernel
+- Context
+- Agents
+- Workflow
+- Projects
+- Control
+- Observability
+- Versioning
+- Human-in-the-loop
+
+---
+
+### Current (v0.4)
+
+Implemented:
+API
+↓
+Kernel
+↓
+Execution
+
+
+---
+
+## Key Principle
+
+Kernel = Control Plane  
+Executors = Workers  
+Context = Brain (future)
