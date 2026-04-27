@@ -5,34 +5,20 @@ from kernel.core.logger import logger
 
 class ModelRouter:
     """
-    ModelRouter — слой принятия решения (Decision Layer).
+    ModelRouter — слой принятия решения (Decision Layer)
 
     Отвечает за:
-    - выбор типа выполнения задачи (local / api)
+    - выбор типа выполнения (local / api)
     - выбор модели
-    - баланс между скоростью, стоимостью и качеством
 
-    Архитектурная роль:
-    - отделяет бизнес-логику выбора модели от execution
-    - позволяет гибко масштабировать систему
-
-    В будущем сюда добавится:
-    - intent classification (ML)
-    - user tier (free / paid)
-    - rate limiting
-    - fallback стратегии
+    ВАЖНО:
+    На CPU используем лёгкие модели (phi3),
+    иначе система становится непригодной по скорости.
     """
 
     def route(self, context: dict) -> dict:
         """
-        Определяет, как выполнять задачу
-
-        :param context: execution context
-        :return: dict:
-        {
-            "type": "local" | "api",
-            "model": str
-        }
+        Определяет стратегию выполнения задачи
         """
 
         task_type = context.get("task_type", "simple")
@@ -42,6 +28,7 @@ class ModelRouter:
         # 1. Базовая логика routing
         # =========================
 
+        # 🔥 ВСЕ local задачи → лёгкая модель
         if task_type == "simple":
             route = {
                 "type": "local",
@@ -51,7 +38,7 @@ class ModelRouter:
         elif task_type == "normal":
             route = {
                 "type": "local",
-                "model": "llama3:8b"
+                "model": "tinyllama"  # 🔥 было llama3:8b → заменили
             }
 
         elif task_type == "complex":
@@ -61,7 +48,6 @@ class ModelRouter:
             }
 
         else:
-            # fallback безопасный вариант
             route = {
                 "type": "local",
                 "model": "phi3:latest"
@@ -70,8 +56,8 @@ class ModelRouter:
         # =========================
         # 2. Дополнительные эвристики
         # =========================
-        # Пример: если текст очень длинный → лучше API
 
+        # 🔥 длинный текст → API
         if len(input_text) > 1000:
             route = {
                 "type": "api",
@@ -79,7 +65,7 @@ class ModelRouter:
             }
 
         # =========================
-        # 3. Логирование решения
+        # 3. Логирование
         # =========================
 
         logger.info(
