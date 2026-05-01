@@ -1,30 +1,36 @@
 """
-Execution Layer (MVP → upgraded with streaming)
+Executor (Stage 5 - FINAL, PRODUCTION READY)
 
 Назначение:
-- принять execution context
-- сформировать prompt
-- вызвать модель (Ollama)
-- вернуть ответ
+- принимает готовый context
+- валидирует наличие RAG (knowledge)
+- строит prompt
+- вызывает LLM
+- возвращает результат
 
 ВАЖНО:
-- добавлен streaming (чтобы не было таймаутов)
-- сохранена архитектура
-- без усложнений (MVP+)
+- НЕ содержит логики retrieval
+- НЕ содержит логики выбора модели
+- работает только с готовым context
 
-Этап: 5 (Context & Knowledge Layer)
+Архитектура:
+Context → Executor → LLM → Response
+
+КЛЮЧЕВОЕ:
+- реализован HARD GUARDRAIL (RAG enforcement)
 """
 
-import requests
-import json
+from kernel.prompt.prompt_builder import PromptBuilder
+from kernel.llm.ollama_client import OllamaClient
 
 
 class Executor:
     def __init__(self):
         """
-        Инициализация executor
+        Инициализация зависимостей
         """
-        self.ollama_url = "http://localhost:11434/api/generate"
+        self.prompt_builder = PromptBuilder()
+        self.client = OllamaClient()
 
     # --------------------------------------------------
     # MAIN ENTRY POINT
@@ -37,107 +43,59 @@ class Executor:
         :return: текст ответа модели
         """
 
-        prompt = self._build_prompt(context)
-        model = context["model"]
+        print("\n🤖 GENERATING RESPONSE...\n")
 
-        print(f"🧠 Using model: {model}")
-        print("🤖 GENERATING RESPONSE...")
+        # -------------------------
+        # 1. ЛОГ КОНТЕКСТА
+        # -------------------------
+        print("📦 FULL CONTEXT:")
+        for key, value in context.items():
+            print(f"{key}: {value}")
 
-        try:
-            return self._call_ollama_stream(model, prompt)
+        # -------------------------
+        # 2. ПРОВЕРКА KNOWLEDGE (🔥 HARD GUARDRAIL)
+        # -------------------------
+        knowledge = context.get("knowledge", {})
+        documents = knowledge.get("documents", [])
 
-        except Exception as e:
-            return f"❌ Execution failed: {str(e)}"
+        print("\n📚 KNOWLEDGE USED:")
+        print(knowledge)
 
-    # --------------------------------------------------
-    # PROMPT BUILDER
-    # --------------------------------------------------
-    def _build_prompt(self, context: dict) -> str:
-        """
-        Формирует prompt
+        # ❗ КРИТИЧЕСКИЙ МОМЕНТ
+        if not documents:
+            print("\n⛔ RAG BLOCK: no documents found")
+            return "I don't know based on the provided context."
 
-        Упрощён специально:
-        - меньше токенов
-        - быстрее генерация
-        """
+        # -------------------------
+        # 3. СТРОИМ PROMPT
+        # -------------------------
+        prompt = self.prompt_builder.build(context)
 
-        input_text = context["input"]
-        rag_context = context.get("rag_context", "")
+        print("\n🧠 PROMPT:")
+        print(prompt)
 
-        # если есть RAG → используем
-        if rag_context:
-            return f"""
-Context:
-{rag_context}
+        # -------------------------
+        # 4. ВЫБОР МОДЕЛИ
+        # -------------------------
+        model = context.get("model", "tinyllama")
 
-Question:
-{input_text}
-
-Answer briefly:
-""".strip()
-
-        # если нет RAG
-        return f"""
-Question:
-{input_text}
-
-Answer briefly:
-""".strip()
-
-    # --------------------------------------------------
-    # OLLAMA STREAMING CALL (КЛЮЧЕВОЕ ИЗМЕНЕНИЕ)
-    # --------------------------------------------------
-    def _call_ollama_stream(self, model: str, prompt: str) -> str:
-        """
-        Streaming вызов Ollama
-
-        Почему это важно:
-        - НЕ ждём весь ответ
-        - получаем токены сразу
-        - избегаем timeout
-        """
-
-        response = requests.post(
-            self.ollama_url,
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": True,  # 🔥 ВАЖНО
-                "options": {
-                    "num_predict": 120,  # ограничение длины
-                    "temperature": 0.3
-                }
-            },
-            stream=True  # 🔥 ВАЖНО
-        )
-
-        if response.status_code != 200:
-            raise Exception(response.text)
-
-        full_response = ""
-
+        print(f"\n🧠 Using model: {model}")
         print("\n💬 Streaming response:\n")
 
-        # читаем поток
-        for line in response.iter_lines():
+        # -------------------------
+        # 5. ВЫЗОВ МОДЕЛИ
+        # -------------------------
+        try:
+            response = self.client.generate(
+                model=model,
+                prompt=prompt
+            )
 
-            if not line:
-                continue
+            # -------------------------
+            # 6. ВОЗВРАТ РЕЗУЛЬТАТА
+            # -------------------------
+            return response
 
-            try:
-                data = json.loads(line.decode("utf-8"))
-
-                token = data.get("response", "")
-
-                # выводим сразу (живой ответ)
-                print(token, end="", flush=True)
-
-                full_response += token
-
-            except Exception:
-                # иногда приходят служебные куски → игнор
-                pass
-
-        print("\n")
-
-        return full_response.strip()
+        except Exception as e:
+            print(f"\n❌ Execution error: {e}")
+            return "❌ Execution failed"

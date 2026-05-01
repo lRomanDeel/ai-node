@@ -1,75 +1,91 @@
 """
-Retriever Module
+Retriever (Stage 5 - Final, FIXED)
 
-Responsibilities:
-- search in Qdrant
-- fetch chunk data from PostgreSQL
+Назначение:
+- выполняет поиск по векторной базе (Qdrant)
+- возвращает релевантные документы
+
+ВАЖНО:
+- использует НОВЫЙ API Qdrant (query_points)
+- НЕ знает про prompt / execution
+- только retrieval слой
+
+Архитектура:
+Query → Embedding → Qdrant → Results
 """
 
-from typing import List
-
-from kernel.storage.qdrant_client import QdrantStorage
-from kernel.storage.postgres_client import PostgresStorage
-from kernel.ingestion.embedders.local_embedder import LocalEmbedder
+from sentence_transformers import SentenceTransformer
+from kernel.storage.qdrant_client import QdrantClientWrapper
 
 
 class Retriever:
-    """
-    Core retrieval logic
-    """
-
     def __init__(self):
-        self.qdrant = QdrantStorage()
-        self.postgres = PostgresStorage()
-        self.embedder = LocalEmbedder()
-
-    def search(self, query: str, limit: int = 3) -> List[dict]:
         """
-        Perform semantic search and return enriched results
+        Инициализация Retriever
+
+        Здесь:
+        - подключаем embedding модель
+        - подключаем Qdrant client
         """
 
-        # 🔍 convert query → embedding
-        query_vector = self.embedder.embed([query])[0]
+        # 🔥 ВАЖНО: должна совпадать с ingestion
+        self.model = SentenceTransformer("all-MiniLM-L6-v2")
 
-        # 🔍 search in Qdrant
-        results = self.qdrant.search(query_vector, limit=limit)
+        # клиент Qdrant (наш wrapper)
+        self.client = QdrantClientWrapper()
 
-        enriched_results = []
+        # имя коллекции
+        self.collection_name = "content_v1"
+
+    # --------------------------------------------------
+    # MAIN SEARCH METHOD
+    # --------------------------------------------------
+    def search(self, query: str, limit: int = 5) -> list:
+        """
+        Выполняет поиск по векторной БД
+
+        :param query: текст запроса
+        :param limit: сколько результатов вернуть
+        :return: список результатов (dict)
+        """
+
+        if not query:
+            return []
+
+        print("\n🔎 QUERY:", query)
+
+        # -------------------------
+        # 1. Генерация embedding
+        # -------------------------
+        query_vector = self.model.encode(query).tolist()
+
+        # -------------------------
+        # 2. Поиск в Qdrant (НОВЫЙ API)
+        # -------------------------
+        results = self.client.search(
+            collection_name=self.collection_name,
+            query_vector=query_vector,
+            limit=limit
+        )
+
+        print("\n📦 RAW QDRANT RESULTS:")
+        print(results)
+
+        # -------------------------
+        # 3. Приводим к нормальному формату
+        # -------------------------
+        formatted_results = []
 
         for r in results:
-            payload = r.payload
+            try:
+                formatted_results.append({
+                    "payload": r.payload,   # текст документа
+                    "score": r.score        # релевантность
+                })
+            except Exception:
+                continue
 
-            chunk_id = payload.get("chunk_id")
-            document_id = payload.get("document_id")
+        print("\n✅ FORMATTED RESULTS:")
+        print(formatted_results)
 
-            # 🔥 достаём текст из Postgres
-            chunk_text = self.get_chunk_text(chunk_id)
-
-            enriched_results.append({
-                "score": r.score,
-                "chunk_id": chunk_id,
-                "document_id": document_id,
-                "text": chunk_text
-            })
-
-        return enriched_results
-
-    def get_chunk_text(self, chunk_id: str) -> str:
-        """
-        Fetch chunk text from PostgreSQL
-        """
-
-        with self.postgres.conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT text FROM chunks WHERE id = %s
-                """,
-                (chunk_id,)
-            )
-
-            result = cursor.fetchone()
-
-            if result:
-                return result[0]
-
-        return ""
+        return formatted_results

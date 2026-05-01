@@ -1,49 +1,79 @@
 """
-FULL PIPELINE TEST
+Full Pipeline Test (Stage 5)
 
-Task → Context → Execution → Response
+Назначение:
+- проверить полный цикл:
+  Task → Context → Knowledge (RAG) → Prompt → Execution → Response
+
+Проверяем:
+✔ работает ли RAG
+✔ попадает ли knowledge в prompt
+✔ использует ли модель контекст
+✔ fallback поведение (если нет данных)
 """
 
 from kernel.context.context_builder import ContextBuilder
 from kernel.execution.executor import Executor
 
 
+# --------------------------------------------------
+# MOCK TASK (упрощённая модель задачи)
+# --------------------------------------------------
 class DummyTask:
-    def __init__(self, input_text):
-        self.id = "task-001"
+    def __init__(self, task_id: str, input_text: str):
+        self.id = task_id
         self.input_data = input_text
 
 
-def main():
+# --------------------------------------------------
+# MAIN TEST
+# --------------------------------------------------
+def run_test(input_text: str):
     print("\n🚀 FULL PIPELINE START\n")
 
-    # 1. Context builder
+    # 1. Создаём задачу
+    task = DummyTask("task-001", input_text)
+
+    # 2. Context Builder
     context_builder = ContextBuilder()
-
-    # 2. Executor
-    executor = Executor()
-
-    # 3. ВАЖНО — длинный текст (включает RAG)
-    task = DummyTask(
-        "Explain how ingestion pipeline works in AI systems "
-        "and how vector databases are used for semantic search"
-    )
-
-    # 4. Build context
     context = context_builder.build(task)
 
+    # 3. Лог контекста
     print("\n📦 CONTEXT:\n")
-    for k, v in context.items():
-        print(f"{k}: {v}\n")
+    for key, value in context.items():
+        print(f"{key}: {value}\n")
 
-    # 5. Execute
+    # 4. Executor
+    executor = Executor()
+
     print("\n🤖 GENERATING RESPONSE...\n")
 
     response = executor.execute(context)
 
-    print("\n✅ RESPONSE:\n")
+    # 5. Финальный ответ
+    print("\n\n✅ FINAL RESPONSE:\n")
     print(response)
 
 
+# --------------------------------------------------
+# ТЕСТОВЫЕ СЦЕНАРИИ
+# --------------------------------------------------
 if __name__ == "__main__":
-    main()
+
+    # ==========================================
+    # ТЕСТ 1 — RAG ДОЛЖЕН СРАБОТАТЬ
+    # ==========================================
+    print("\n==============================")
+    print("TEST 1: RAG SHOULD BE USED")
+    print("==============================")
+
+    run_test("What is the test document about?")
+
+    # ==========================================
+    # ТЕСТ 2 — НЕТ RAG (должен сказать не знаю)
+    # ==========================================
+    print("\n==============================")
+    print("TEST 2: NO CONTEXT FALLBACK")
+    print("==============================")
+
+    run_test("What is quantum teleportation?")

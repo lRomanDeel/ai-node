@@ -1,121 +1,86 @@
 """
-Execution Context Builder
+Context Builder (Stage 5 - Final)
 
-Responsibilities:
-- формирует execution context из Task
-- определяет тип задачи
-- вызывает Decision Layer (ModelRouter)
-- (опционально) подключает RAG слой
+Назначение:
+- собирает полный execution context
+- объединяет:
+    task + knowledge + routing
+- передаёт это дальше в Executor
 
-Это НЕ RAG builder.
-Это orchestrator уровня execution.
+ВАЖНО:
+- НЕ строит prompt
+- НЕ вызывает модель
+- только сбор контекста
 
-RAG — отдельный слой (kernel/rag)
+Архитектура:
+Task → ContextBuilder → Executor
 """
 
+from kernel.knowledge.knowledge_builder import KnowledgeBuilder
 from kernel.execution.model_router import ModelRouter
-from kernel.rag.context_builder import ContextBuilder as RAGContextBuilder
 
 
 class ContextBuilder:
-    """
-    ContextBuilder — формирует execution context для задачи
-    """
-
     def __init__(self):
         """
         Инициализация зависимостей
         """
-        self.router = ModelRouter()
 
-        # RAG builder (подключается по условию)
-        self.rag_builder = RAGContextBuilder()
+        # Knowledge слой (RAG)
+        self.knowledge_builder = KnowledgeBuilder()
 
-    # ------------------------------------------------------------------
-    # BUILD CONTEXT
-    # ------------------------------------------------------------------
-    def build(self, task):
+        # Router (выбор модели)
+        self.model_router = ModelRouter()
+
+    # --------------------------------------------------
+    # MAIN METHOD
+    # --------------------------------------------------
+    def build(self, task) -> dict:
         """
-        Формирует execution context
+        Собирает полный context
 
-        :param task: объект Task
-        :return: dict
-
-        Структура context:
-        {
-            "task_id": str,
-            "input": str,
-            "task_type": str,
-            "execution_type": str,
-            "model": str,
-            "rag_context": str
-        }
+        :param task: объект задачи
+        :return: dict context
         """
 
-        # =========================
-        # 1. Базовые данные
-        # =========================
+        # -------------------------
+        # 1. Базовый context
+        # -------------------------
         context = {
             "task_id": task.id,
             "input": task.input_data,
+            "task_type": "simple"  # пока фиксированный (потом можно расширить)
         }
 
-        # =========================
-        # 2. Определение типа задачи
-        # =========================
-        context["task_type"] = self._detect_task_type(task.input_data)
+        print("\n🧱 BASE CONTEXT:")
+        print(context)
 
-        # =========================
-        # 3. Routing (Decision Layer)
-        # =========================
-        route = self.router.route(context)
+        # -------------------------
+        # 2. Knowledge (RAG)
+        # -------------------------
+        knowledge = self.knowledge_builder.build(task.input_data)
 
-        context["execution_type"] = route["type"]
-        context["model"] = route["model"]
+        context["knowledge"] = knowledge
 
-        # =========================
-        # 4. RAG Context (ВАЖНО)
-        # =========================
-        # Подключаем RAG только для задач выше simple
-        if context["task_type"] in ["normal", "complex"]:
-            rag_context = self.rag_builder.build(task.input_data)
+        print("\n📚 CONTEXT WITH KNOWLEDGE:")
+        print(context["knowledge"])
 
-            # защита от None / пустоты
-            context["rag_context"] = rag_context if rag_context else ""
+        # -------------------------
+        # 3. Routing (модель)
+        # -------------------------
+        route = self.model_router.route(context)
 
-        else:
-            context["rag_context"] = ""
+        context["execution_type"] = route.get("type")
+        context["model"] = route.get("model")
 
-        # =========================
-        # 5. (ЗАДЕЛ НА БУДУЩЕЕ)
-        # =========================
-        # context["user"] = ...
-        # context["history"] = ...
-        # context["memory"] = ...
+        print("\n🧠 ROUTING DECISION:")
+        print(route)
+
+        # -------------------------
+        # 4. Финальный context
+        # -------------------------
+        print("\n📦 FINAL CONTEXT:")
+        for key, value in context.items():
+            print(f"{key}: {value}")
 
         return context
-
-    # ------------------------------------------------------------------
-    # TASK TYPE DETECTION
-    # ------------------------------------------------------------------
-    def _detect_task_type(self, input_text: str) -> str:
-        """
-        Определяет тип задачи
-
-        :param input_text: текст запроса
-        :return: simple | normal | complex
-        """
-
-        if not input_text:
-            return "simple"
-
-        length = len(input_text)
-
-        if length < 100:
-            return "simple"
-
-        elif length < 500:
-            return "normal"
-
-        else:
-            return "complex"

@@ -1,76 +1,51 @@
-# kernel/execution/model_router.py
+"""
+Model Router (Deterministic)
 
+Назначение:
+- выбрать модель по конфигурации
+
+Архитектурная роль:
+- НЕ содержит эвристик
+- НЕ принимает "умных" решений
+- просто читает MODEL_REGISTRY
+
+Это делает систему:
+✔ предсказуемой
+✔ контролируемой
+✔ production-ready
+"""
+
+from kernel.config.model_registry import MODEL_REGISTRY
 from kernel.core.logger import logger
 
 
 class ModelRouter:
-    """
-    ModelRouter — слой принятия решения (Decision Layer)
-
-    Отвечает за:
-    - выбор типа выполнения (local / api)
-    - выбор модели
-
-    ВАЖНО:
-    На CPU используем лёгкие модели (phi3),
-    иначе система становится непригодной по скорости.
-    """
-
     def route(self, context: dict) -> dict:
         """
-        Определяет стратегию выполнения задачи
+        Возвращает модель для выполнения задачи
+
+        :param context: execution context
+        :return: dict:
+        {
+            "type": "local" | "api",
+            "model": str
+        }
         """
 
         task_type = context.get("task_type", "simple")
-        input_text = context.get("input", "")
 
         # =========================
-        # 1. Базовая логика routing
+        # ЖЁСТКОЕ СООТВЕТСТВИЕ
         # =========================
+        route = MODEL_REGISTRY.get(task_type)
 
-        # 🔥 ВСЕ local задачи → лёгкая модель
-        if task_type == "simple":
-            route = {
-                "type": "local",
-                "model": "phi3:latest"
-            }
+        # fallback (на всякий случай)
+        if not route:
+            route = MODEL_REGISTRY["simple"]
 
-        elif task_type == "normal":
-            route = {
-                "type": "local",
-                "model": "tinyllama"  # 🔥 было llama3:8b → заменили
-            }
-
-        elif task_type == "complex":
-            route = {
-                "type": "api",
-                "model": "gpt-4o-mini"
-            }
-
-        else:
-            route = {
-                "type": "local",
-                "model": "phi3:latest"
-            }
-
-        # =========================
-        # 2. Дополнительные эвристики
-        # =========================
-
-        # 🔥 длинный текст → API
-        if len(input_text) > 1000:
-            route = {
-                "type": "api",
-                "model": "gpt-4o-mini"
-            }
-
-        # =========================
-        # 3. Логирование
-        # =========================
-
+        # логирование (очень важно для отладки)
         logger.info(
             f"[MODEL ROUTER] task_type={task_type} "
-            f"input_len={len(input_text)} "
             f"→ type={route['type']} model={route['model']}"
         )
 
