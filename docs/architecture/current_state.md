@@ -165,3 +165,16 @@ System currently uses:
 Purpose:
 - validate architecture
 - ensure pipeline stability
+
+
+## Stage 5.5 — Agents Pipeline (MVP)
+
+Completed:
+- BaseAgent abstraction
+- IngestionAgent
+- ProcessingAgent
+- GenerationAgent
+- StyleAgent
+- Pipeline orchestration
+
+System now supports end-to-end content generation flow.
